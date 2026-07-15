@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, jsonify
-from stock_analyzer import StockAnalyzer
+from stock_analyzer import StockAnalyzer, LSTM_AVAILABLE
+import demo_data
 import config
 import datetime
 import re
@@ -26,15 +27,15 @@ MAX_DATA_POINTS = config.MAX_DATA_POINTS
 COLLECT_DATA_TIMEOUT_SECONDS = config.COLLECT_DATA_TIMEOUT_SECONDS
 CACHE_TTL_SECONDS = config.CACHE_TTL_SECONDS
 
-# Cache of (analyzer, fit_result) keyed by (symbol, exchange, data_points, model_type),
-# so repeat requests that only differ by target date don't retrain the model.
+# Cache keyed by (symbol, exchange, data_points, model_type), so repeat
+# requests that only differ by target date don't retrain the model.
 _fit_cache = {}
 _fit_cache_lock = threading.Lock()
 
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('index.html', lstm_available=LSTM_AVAILABLE)
 
 
 def _collect_data_with_timeout(analyzer, symbol, exchange, data_points, timeout=COLLECT_DATA_TIMEOUT_SECONDS):
@@ -49,14 +50,20 @@ def _collect_data_with_timeout(analyzer, symbol, exchange, data_points, timeout=
 def _get_cached_fit(cache_key):
     with _fit_cache_lock:
         cached = _fit_cache.get(cache_key)
-        if cached and (time.time() - cached[0]) < CACHE_TTL_SECONDS:
-            return cached[1], cached[2]
-    return None, None
+        if cached and (time.time() - cached['ts']) < CACHE_TTL_SECONDS:
+            return cached
+    return None
 
 
-def _store_cached_fit(cache_key, analyzer, fit_result):
+def _store_cached_fit(cache_key, analyzer, fit_result, demo_used, demo_reason):
     with _fit_cache_lock:
-        _fit_cache[cache_key] = (time.time(), analyzer, fit_result)
+        _fit_cache[cache_key] = {
+            'ts': time.time(),
+            'analyzer': analyzer,
+            'fit_result': fit_result,
+            'demo_used': demo_used,
+            'demo_reason': demo_reason,
+        }
 
 
 def _plot_to_base64(actual_prices, pred_prices, symbol, model_type):
@@ -100,6 +107,11 @@ def analyze():
             "error": f"Invalid model_type. Choose one of: {', '.join(sorted(ALLOWED_MODEL_TYPES))}."
         }), 400
 
+    if model_type == 'lstm' and not LSTM_AVAILABLE:
+        return jsonify({
+            "error": "LSTM is unavailable on this server (tensorflow is not installed). Choose a different model."
+        }), 400
+
     try:
         data_points = int(data_points_raw)
     except ValueError:
@@ -110,21 +122,34 @@ def analyze():
         }), 400
 
     cache_key = (symbol, exchange, data_points, model_type)
-    analyzer, fit_result = _get_cached_fit(cache_key)
+    cached = _get_cached_fit(cache_key)
 
-    if analyzer is None:
+    if cached is not None:
+        analyzer = cached['analyzer']
+        fit_result = cached['fit_result']
+        demo_used = cached['demo_used']
+        demo_reason = cached['demo_reason']
+    else:
         analyzer = StockAnalyzer()
+        live_error = None
         try:
             data = _collect_data_with_timeout(analyzer, symbol, exchange, data_points)
+            if data is None or data.empty:
+                live_error = f"No data found for symbol '{symbol}' on exchange '{exchange}'."
         except concurrent.futures.TimeoutError:
-            return jsonify({"error": f"Timed out fetching data for {symbol}. Please try again."}), 502
+            live_error = f"Timed out fetching data for {symbol}."
         except Exception as e:
-            return jsonify({"error": f"Failed to fetch data for {symbol}: {e}"}), 502
+            live_error = f"Failed to fetch data for {symbol}: {e}"
 
-        if data is None or data.empty:
-            return jsonify({
-                "error": f"No data found for symbol '{symbol}' on exchange '{exchange}'. Check the symbol/exchange and try again."
-            }), 502
+        demo_used = False
+        demo_reason = None
+        if live_error is not None:
+            demo_df = demo_data.load_demo_data(symbol, n_bars=data_points)
+            if demo_df is None:
+                return jsonify({"error": f"{live_error} Check the symbol/exchange and try again."}), 502
+            analyzer.data = demo_df
+            demo_used = True
+            demo_reason = f"{live_error} Showing bundled demo data for {symbol} instead."
 
         try:
             fit_result = analyzer.fit(model_type)
@@ -133,7 +158,7 @@ def analyze():
         except Exception as e:
             return jsonify({"error": f"Model fitting failed: {e}"}), 500
 
-        _store_cached_fit(cache_key, analyzer, fit_result)
+        _store_cached_fit(cache_key, analyzer, fit_result, demo_used, demo_reason)
 
     last_date = analyzer.data.index[-1]
     if future_date <= last_date:
@@ -173,6 +198,8 @@ def analyze():
         "better_than_baseline": better_than_baseline,
         "uncertainty_band": round(uncertainty_band, 4),
         "warning": warning,
+        "demo_data": demo_used,
+        "demo_data_reason": demo_reason,
         "plot": plot_data_uri
     })
 

@@ -1,0 +1,15 @@
+# Slim requirements: everything except tensorflow/keras (LSTM).
+# Use this for a low-memory free-tier deploy. LSTM will be automatically
+# unavailable (stock_analyzer.LSTM_AVAILABLE = False) and hidden in the UI;
+# every other model (linear/ridge/polynomial/svr/randomforest/
+# gradientboosting/mlp) works normally.
+#
+# For the full model set including LSTM, use requirements.txt instead.
+flask==3.1.2
+git+https://github.com/rongardF/tvdatafeed.git
+scikit-learn==1.8.0
+numpy==2.4.1
+matplotlib==3.10.8
+pandas==3.0.0
+python-dotenv==1.2.2
+waitress==3.0.2

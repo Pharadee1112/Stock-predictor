@@ -5,10 +5,8 @@ from sklearn.svm import SVR
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.neural_network import MLPRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error
+import importlib.util
 import numpy as np
-import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -16,6 +14,23 @@ FEATURE_COLUMNS = ['day', 'MA5', 'MA20', 'volatility', 'volume']
 TRAIN_RATIO = 0.8
 LSTM_WINDOW = 20
 LONG_HORIZON_WARNING_DAYS = 7
+
+
+# Cheap check (no actual import/load) so the app can start and every other
+# model can run even when tensorflow isn't installed (e.g. a slim deploy).
+LSTM_AVAILABLE = importlib.util.find_spec('tensorflow') is not None
+
+
+def _import_keras_layers():
+    try:
+        from tensorflow.keras.models import Sequential
+        from tensorflow.keras.layers import LSTM, Dense
+    except ImportError as exc:
+        raise ValueError(
+            "LSTM model requires tensorflow, which is not installed on this server. "
+            "Choose a different model (e.g. linear, randomforest, mlp)."
+        ) from exc
+    return Sequential, LSTM, Dense
 
 
 class StockDataCollector:
@@ -223,6 +238,8 @@ class StockAnalyzer(StockDataCollector):
         return np.array(X), np.array(y)
 
     def _fit_lstm(self, window=LSTM_WINDOW):
+        Sequential, LSTM, Dense = _import_keras_layers()
+
         closes = self.data['close'].values.astype(float)
         window = max(2, min(window, len(closes) - 5))
         if len(closes) - window < 4:

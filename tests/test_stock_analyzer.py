@@ -138,3 +138,32 @@ def test_naive_baseline_is_yesterdays_close(mocked_tv):
     fit_result = analyzer.fit("linear")
 
     assert abs(fit_result["baseline_mae"] - 0.4) < 0.05
+
+
+def test_lstm_available_flag_is_bool():
+    assert isinstance(stock_analyzer.LSTM_AVAILABLE, bool)
+
+
+def test_fit_lstm_raises_clear_error_when_keras_unavailable(mocked_tv, monkeypatch):
+    """Simulates tensorflow being absent: the lazy import should fail with a
+    clear, catchable ValueError instead of an ImportError crashing the app."""
+    def boom():
+        raise ValueError(
+            "LSTM model requires tensorflow, which is not installed on this server."
+        )
+    monkeypatch.setattr(stock_analyzer, "_import_keras_layers", boom)
+
+    analyzer = make_analyzer(mocked_tv, n=80)
+    with pytest.raises(ValueError, match="tensorflow"):
+        analyzer.fit("lstm")
+
+
+def test_other_models_unaffected_when_keras_unavailable(mocked_tv, monkeypatch):
+    def boom():
+        raise ValueError("LSTM model requires tensorflow, which is not installed on this server.")
+    monkeypatch.setattr(stock_analyzer, "_import_keras_layers", boom)
+
+    analyzer = make_analyzer(mocked_tv, n=80)
+    result = analyzer.fit("linear")
+
+    assert result["kind"] == "classical"

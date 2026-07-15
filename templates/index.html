@@ -70,12 +70,12 @@
         }
     </style>
 </head>
-<body>
+<body data-lstm-available="{{ 'true' if lstm_available else 'false' }}">
 
 <div class="box">
     <h3 class="h3">Stock Predictor</h3>
     <p>Stock symbol :</p>
-    <input id="symbol" placeholder="(AAPL)">
+    <input id="symbol" placeholder="(AAPL)" value="AAPL">
     <p>Exchange :</p>
     <input id="exchange" list="exchanges" placeholder="NASDAQ" value="NASDAQ">
     <datalist id="exchanges">
@@ -90,7 +90,7 @@
     <p>Date to predict :</p>
     <input id="date" type="date">
     <p>Model Type :</p>
-    <input id="model_type" list="models" placeholder="Select Model">
+    <input id="model_type" list="models" placeholder="Select Model" value="Linear">
     <datalist id="models">
         <option value="Linear">
         <option value="Ridge">
@@ -99,8 +99,9 @@
         <option value="RandomForest">
         <option value="GradientBoosting">
         <option value="MLP">
-        <option value="LSTM">
+        <option value="LSTM" id="lstm_option">
     </datalist>
+    <small id="lstm_note" style="color:#888; display:none;">LSTM is unavailable on this server (tensorflow not installed).</small>
     <p>Number use to predict(date) :</p>
     <input id="data_points" type="number" min="30" max="500" placeholder="Data points (30-500, default 60)" value="60">
     <button id="predict_btn" onclick="analyze()">Predict</button>
@@ -118,7 +119,9 @@
 </div>
 
 <script>
-const ALLOWED_MODELS = ["linear", "ridge", "polynomial", "svr", "randomforest", "gradientboosting", "mlp", "lstm"];
+const LSTM_AVAILABLE = document.body.dataset.lstmAvailable === "true";
+const ALLOWED_MODELS = ["linear", "ridge", "polynomial", "svr", "randomforest", "gradientboosting", "mlp"]
+    .concat(LSTM_AVAILABLE ? ["lstm"] : []);
 const MIN_DATA_POINTS = 30;
 const MAX_DATA_POINTS = 500;
 
@@ -128,8 +131,23 @@ function tomorrowISO() {
     return d.toISOString().slice(0, 10);
 }
 
+function defaultExampleDateISO() {
+    const d = new Date();
+    d.setDate(d.getDate() + 5);
+    return d.toISOString().slice(0, 10);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
-    document.getElementById("date").min = tomorrowISO();
+    const dateInput = document.getElementById("date");
+    dateInput.min = tomorrowISO();
+    if (!dateInput.value) {
+        dateInput.value = defaultExampleDateISO();
+    }
+
+    if (!LSTM_AVAILABLE) {
+        document.getElementById("lstm_option").remove();
+        document.getElementById("lstm_note").style.display = "inline";
+    }
 });
 
 function showError(message) {
@@ -155,6 +173,10 @@ function analyze() {
     }
     if (date < tomorrowISO()) {
         showError("Date must be tomorrow or later.");
+        return;
+    }
+    if (model_type === "lstm" && !LSTM_AVAILABLE) {
+        showError("LSTM is unavailable on this server (tensorflow not installed). Choose a different model.");
         return;
     }
     if (!ALLOWED_MODELS.includes(model_type)) {
@@ -195,9 +217,14 @@ function analyze() {
         const warningHtml = data.warning
             ? `<br><span style="color:#c0392b">${data.warning}</span>`
             : "";
+        const demoBadgeHtml = data.demo_data
+            ? `<br><span style="background:#f39c12;color:white;padding:2px 8px;border-radius:4px;font-size:12px;">DEMO DATA</span>
+               <br><span style="color:#888;font-size:12px;">${data.demo_data_reason}</span>`
+            : "";
 
         document.getElementById("result").innerHTML = `
-            <b>${data.symbol}</b> (${data.exchange})<br>
+            <b>${data.symbol}</b> (${data.exchange})
+            ${demoBadgeHtml}<br>
             Last date: ${data.last_date}<br>
             Predicted close: <b>$${data.predicted_close}</b>
             &plusmn; ${data.uncertainty_band}<br>
