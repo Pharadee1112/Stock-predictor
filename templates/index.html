@@ -76,6 +76,17 @@
     <h3 class="h3">Stock Predictor</h3>
     <p>Stock symbol :</p>
     <input id="symbol" placeholder="(AAPL)">
+    <p>Exchange :</p>
+    <input id="exchange" list="exchanges" placeholder="NASDAQ" value="NASDAQ">
+    <datalist id="exchanges">
+        <option value="NASDAQ">
+        <option value="NYSE">
+        <option value="AMEX">
+        <option value="LSE">
+        <option value="HOSE">
+        <option value="SET">
+        <option value="BINANCE">
+    </datalist>
     <p>Date to predict :</p>
     <input id="date" type="date">
     <p>Model Type :</p>
@@ -91,8 +102,8 @@
         <option value="LSTM">
     </datalist>
     <p>Number use to predict(date) :</p>
-    <input id="data_points" type="number" placeholder="Data points (default 60)" value="60">
-    <button onclick="analyze()">Predict</button>
+    <input id="data_points" type="number" min="30" max="500" placeholder="Data points (30-500, default 60)" value="60">
+    <button id="predict_btn" onclick="analyze()">Predict</button>
 </div>
 
 
@@ -107,42 +118,103 @@
 </div>
 
 <script>
+const ALLOWED_MODELS = ["linear", "ridge", "polynomial", "svr", "randomforest", "gradientboosting", "mlp", "lstm"];
+const MIN_DATA_POINTS = 30;
+const MAX_DATA_POINTS = 500;
+
+function tomorrowISO() {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10);
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    document.getElementById("date").min = tomorrowISO();
+});
+
+function showError(message) {
+    document.getElementById("result").innerText = message;
+    document.getElementById("plot").style.display = "none";
+    document.getElementById("popup").style.display = "flex";
+}
+
 function analyze() {
-    const symbol = document.getElementById("symbol").value;
+    const symbol = document.getElementById("symbol").value.trim().toUpperCase();
+    const exchange = document.getElementById("exchange").value.trim().toUpperCase() || "NASDAQ";
     const date = document.getElementById("date").value;
-    const model_type = document.getElementById("model_type").value;
+    const model_type = document.getElementById("model_type").value.trim().toLowerCase();
     const data_points = document.getElementById("data_points").value;
+
+    if (!symbol) {
+        showError("Please enter a stock symbol.");
+        return;
+    }
+    if (!date) {
+        showError("Please select a date.");
+        return;
+    }
+    if (date < tomorrowISO()) {
+        showError("Date must be tomorrow or later.");
+        return;
+    }
+    if (!ALLOWED_MODELS.includes(model_type)) {
+        showError("Please select a valid model from the list.");
+        return;
+    }
+    const dataPointsNum = Number(data_points);
+    if (!data_points || !Number.isInteger(dataPointsNum) || dataPointsNum < MIN_DATA_POINTS || dataPointsNum > MAX_DATA_POINTS) {
+        showError(`Data points must be a whole number between ${MIN_DATA_POINTS} and ${MAX_DATA_POINTS}.`);
+        return;
+    }
+
+    const button = document.getElementById("predict_btn");
+    button.disabled = true;
+    const originalButtonText = button.innerText;
+    button.innerText = "Predicting...";
+
+    document.getElementById("result").innerText = "Loading... this can take a few seconds, especially for LSTM/MLP models.";
+    document.getElementById("plot").style.display = "none";
+    document.getElementById("popup").style.display = "flex";
 
     fetch("/analyze", {
         method: "POST",
         headers: {
             "Content-Type": "application/x-www-form-urlencoded"
         },
-        body: `symbol=${symbol}&date=${date}&model_type=${model_type}&data_points=${data_points}`
+        body: `symbol=${encodeURIComponent(symbol)}&exchange=${encodeURIComponent(exchange)}&date=${encodeURIComponent(date)}&model_type=${encodeURIComponent(model_type)}&data_points=${encodeURIComponent(dataPointsNum)}`
     })
     .then(res => res.json())
     .then(data => {
         if (data.error) {
-            document.getElementById("result").innerText = data.error;
-            document.getElementById("plot").style.display = "none";
-            document.getElementById("popup").style.display = "flex";
+            showError(data.error);
             return;
         }
+        const baselineNote = data.better_than_baseline
+            ? "Beats naive baseline"
+            : "Does NOT beat naive baseline";
+        const warningHtml = data.warning
+            ? `<br><span style="color:#c0392b">${data.warning}</span>`
+            : "";
+
         document.getElementById("result").innerHTML = `
-            <b>${data.symbol}</b><br>
+            <b>${data.symbol}</b> (${data.exchange})<br>
             Last date: ${data.last_date}<br>
-            Predicted close: <b>$${data.predicted_close}</b><br>
-            MAE: ${data.mae}<br>
-            MSE: ${data.mse}
+            Predicted close: <b>$${data.predicted_close}</b>
+            &plusmn; ${data.uncertainty_band}<br>
+            MAE: ${data.mae} | MSE: ${data.mse} | MAPE: ${data.mape}%<br>
+            Baseline MAE: ${data.baseline_mae} (${baselineNote})
+            ${warningHtml}
         `;
         document.getElementById("plot").style.display = "block";
         document.getElementById("plot").src = data.plot;
         document.getElementById("popup").style.display = "flex";
     })
     .catch(err => {
-        document.getElementById("result").innerText = "Unexpected error. Please try again.";
-        document.getElementById("plot").style.display = "none";
-        document.getElementById("popup").style.display = "flex";
+        showError("Unexpected error. Please try again.");
+    })
+    .finally(() => {
+        button.disabled = false;
+        button.innerText = originalButtonText;
     });
 }
 
