@@ -110,15 +110,9 @@ class StockAnalyzer(StockDataCollector):
     def _build_warning(days_ahead, better_than_baseline):
         parts = []
         if days_ahead > LONG_HORIZON_WARNING_DAYS:
-            parts.append(
-                f"ทำนายล่วงหน้า {days_ahead} วัน (เกิน {LONG_HORIZON_WARNING_DAYS} วัน) "
-                "ความแม่นยำจะลดลงมาก ควรใช้ผลลัพธ์อย่างระมัดระวัง"
-            )
+            parts.append(f"{days_ahead}d forecast — accuracy drops over long horizons.")
         if not better_than_baseline:
-            parts.append(
-                "โมเดลนี้แม่นยำไม่ดีไปกว่าการทำนายแบบพื้นฐาน (พรุ่งนี้ = ราคาวันนี้) "
-                "ควรพิจารณาผลลัพธ์อย่างระมัดระวังหรือเลือกโมเดลอื่น"
-            )
+            parts.append("Doesn't beat naive baseline — use with caution.")
         return " ".join(parts) if parts else None
 
     # ---------- classical (non-LSTM) models ----------

@@ -1,5 +1,26 @@
 # Stock Predictor
 
+Forecast a stock's future closing price with 8 ML models — built with honest,
+out-of-sample validation instead of the "looks-good-on-training-data" numbers
+most tutorials show.
+
+![Demo](docs/screenshot.png)
+
+## What makes it different
+
+Most beginner stock predictors fit a model on all the data and report how well
+it memorized the past. This one measures what actually matters — performance on
+**unseen** data — and it tells you when it is *not* confident:
+
+- **Chronological train/test split** — no shuffling, which would leak the future into training
+- **Out-of-sample MAE / MSE / MAPE** — real error on held-out data, not training scores
+- **Naive baseline comparison** — warns you when the model can't beat "tomorrow = today"
+- **Uncertainty band** that widens the further ahead you forecast
+
+## Tech stack
+
+Python · Flask · scikit-learn · TensorFlow (LSTM) · pandas · pytest · waitress
+
 A small Flask web app that predicts a stock's future closing price using several
 classic ML models (or an LSTM), pulling historical price data live from
 TradingView via [tvDatafeed](https://github.com/rongardF/tvdatafeed).
